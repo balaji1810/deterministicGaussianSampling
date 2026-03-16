@@ -11,7 +11,6 @@ double gm_to_dirac_short<T>::calculateP2(double b, void* params) {
   const size_t L = optiParams->L;
   const gsl_vector* wX = optiParams->wX;
   const gsl_vector* covDiagSqrd = optiParams->covDiagSqrd;
-  const double twoPiNHalf = optiParams->twoPiNHalf;
 
   GMToDiracIntegrationParams* integrationParams = optiParams->integrationParams;
   const gsl_vector* x = integrationParams->x;
@@ -28,9 +27,9 @@ double gm_to_dirac_short<T>::calculateP2(double b, void* params) {
 #ifdef USE_CACHE_MANAGER
   if (!cacheManagerPrefactor || !cacheManagerPrefactor->get(b, &prefactor)) {
 #endif
-    prefactor = twoPiNHalf * gsl_sf_pow_int(b, (int)(N + 1));
+    prefactor = b;
     for (size_t k = 0; k < N; k++) {
-      prefactor *= 1.00 / std::sqrt(covDiagSqrd->data[k] + twoBSqrd);
+      prefactor *= std::sqrt(twoBSqrd / (covDiagSqrd->data[k] + twoBSqrd));
     }
 #ifdef USE_CACHE_MANAGER
     if (cacheManagerPrefactor) cacheManagerPrefactor->set(b, prefactor);
@@ -81,10 +80,9 @@ double gm_to_dirac_short<T>::calculateGradP2(double b, void* params) {
 #ifdef USE_CACHE_MANAGER
   if (!cacheManagerPrefactor || !cacheManagerPrefactor->get(b, &prefactor)) {
 #endif
-    prefactor =
-        gsl_sf_pow_int(b, (int)(N + 1)) / (covDiagSqrd->data[eta] + twoBSqrd);
+    prefactor = 2*b / (covDiagSqrd->data[eta] + twoBSqrd);
     for (size_t k = 0; k < N; k++) {
-      prefactor *= 1.00 / std::sqrt(covDiagSqrd->data[k] + twoBSqrd);
+      prefactor *= std::sqrt(twoBSqrd / (covDiagSqrd->data[k] + twoBSqrd));
     }
 #ifdef USE_CACHE_MANAGER
   }
@@ -115,7 +113,6 @@ void gm_to_dirac_short<T>::calculateD2(
   const size_t L = params->L;
   const size_t N = params->N;
   const gsl_vector* wX = params->wX;
-  const double twoPiNHalf = params->twoPiNHalf;
   const GslQuadratureAdaptiveGaussKronrod* integrationUtils =
       params->gaussKronrod;
   params->integrationParams->reset(x);
@@ -142,7 +139,7 @@ void gm_to_dirac_short<T>::calculateD2(
                                     (double)(params->bMax), &localResult,
                                     &localAbserr);
         grad->data[i * N + k] +=
-            2.00 * twoPiNHalf * wX->data[i] * x->data[i * N + k] * localResult;
+            wX->data[i] * x->data[i * N + k] * localResult;
       }
     }
   }
