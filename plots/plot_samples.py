@@ -16,20 +16,19 @@ AXIS_LIMIT = 4.0
 GRID_RES = 400
 SEED = "42"
 
-# Covariance matrices for the figures
-# Figure A: three correlated covariance structures with increasing L.
-CORRELATED_SIGMAS = [
-    {"sigma": [[2.0, 0.5], [0.5, 2.0]], "L": 10},
-    {"sigma": [[1.5, -0.6], [-0.6, 1.5]], "L": 20},
-    {"sigma": [[2.0, 1.0], [1.0, 2.0]], "L": 30},
-]
+# Figure A: a correlation x sample-count grid. Rows vary the correlation rho of
+# a unit-variance covariance Sigma = [[1, rho], [rho, 1]]; columns vary the
+# deterministic sample count L.
+CORRELATED_RHOS = [0.3, 0.6, 0.9]  # rows: increasing correlation
+CORRELATED_LS = [10, 20, 40, 80]   # columns: increasing sample count
 
-# Figure B: standard normal (Sigma = I) approximated with more and more samples.
-STANDARD_NORMAL_SIGMAS = [
-    {"sigma": [[1.0, 0.0], [0.0, 1.0]], "L": 10},
-    {"sigma": [[1.0, 0.0], [0.0, 1.0]], "L": 20},
-    {"sigma": [[1.0, 0.0], [0.0, 1.0]], "L": 40},
-]
+# Figure B: standard normal (Sigma = I)
+IDENTITY_SIGMA = [[1.0, 0.0], [0.0, 1.0]]
+STANDARD_NORMAL_L_GRID = [[10, 20, 30], [40, 50, 60]]
+
+
+def correlation_sigma(rho):
+    return [[1.0, rho], [rho, 1.0]]
 
 
 def resolve_generator(path):
@@ -71,11 +70,6 @@ def gaussian_density(sigma):
     return norm * np.exp(-0.5 * quad)
 
 
-def matrix_label(sigma):
-    (a, b), (c, d) = sigma
-    return "Σ = [[%g, %g], [%g, %g]]" % (a, b, c, d)
-
-
 def draw_panel(ax, generator, case):
     sigma = case["sigma"]
     n_samples = case["L"]
@@ -104,16 +98,32 @@ def draw_panel(ax, generator, case):
     ax.set_ylim(-AXIS_LIMIT, AXIS_LIMIT)
     ax.set_xticks(range(-4, 5, 2))
     ax.set_yticks(range(-4, 5, 2))
-    ax.set_title("L = %d\n%s" % (n_samples, matrix_label(sigma)), fontsize=11)
 
 
-def build_figure(generator, cases, suptitle, out_path):
-    fig, axes = plt.subplots(1, len(cases), figsize=(4.2 * len(cases), 4.8))
+def build_figure(generator, grid, suptitle, out_path,
+                 col_headers=None, row_labels=None, panel_titles=False):
+
+    n_rows = len(grid)
+    n_cols = len(grid[0])
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(4.2 * n_cols, 4.2 * n_rows + 0.6),
+        squeeze=False,
+    )
     fig.patch.set_facecolor("white")
-    for ax, case in zip(np.atleast_1d(axes), cases):
-        draw_panel(ax, generator, case)
-    fig.suptitle(suptitle, fontsize=13, y=0.99)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    for i, row in enumerate(grid):
+        for j, case in enumerate(row):
+            ax = axes[i][j]
+            draw_panel(ax, generator, case)
+            if panel_titles:
+                ax.set_title("L = %d" % case["L"], fontsize=12)
+            if col_headers is not None and i == 0:
+                ax.set_title(col_headers[j], fontsize=13)
+            if row_labels is not None and j == 0:
+                ax.set_ylabel(row_labels[i], fontsize=13, labelpad=8)
+    fig.suptitle(suptitle, fontsize=15, y=0.995)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(out_path, dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"wrote {out_path}")
@@ -136,17 +146,32 @@ def main():
     generator = resolve_generator(args.generator)
     os.makedirs(args.out_dir, exist_ok=True)
 
+    # Figure A: correlation (rows) x sample count (columns).
+    correlated_grid = [
+        [{"sigma": correlation_sigma(rho), "L": L} for L in CORRELATED_LS]
+        for rho in CORRELATED_RHOS
+    ]
     build_figure(
         generator,
-        CORRELATED_SIGMAS,
-        "Gaussian-to-Dirac (LCD) approximation for three covariance structures",
+        correlated_grid,
+        "Gaussian-to-Dirac (LCD) approximation: correlation (rows) "
+        "x sample count (columns)",
         os.path.join(args.out_dir, "samples_correlated.png"),
+        col_headers=["L = %d" % L for L in CORRELATED_LS],
+        row_labels=["ρ = %.1f" % rho for rho in CORRELATED_RHOS],
     )
+
+    # Figure B: standard normal (Sigma = I) with increasing L.
+    standard_grid = [
+        [{"sigma": IDENTITY_SIGMA, "L": L} for L in row]
+        for row in STANDARD_NORMAL_L_GRID
+    ]
     build_figure(
         generator,
-        STANDARD_NORMAL_SIGMAS,
-        "Standard normal approximated with increasing sample counts",
+        standard_grid,
+        "Standard normal (Σ = I) approximated with increasing sample counts",
         os.path.join(args.out_dir, "samples_standard_normal.png"),
+        panel_titles=True,
     )
 
 

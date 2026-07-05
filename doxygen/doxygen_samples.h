@@ -19,9 +19,12 @@
  *
  * \section page_samples_correlated Correlated covariances
  *
- * \image html samples_correlated.png "Gaussian-to-Dirac approximation for three covariance structures (L = 10, 20, 30)." width=60%
+ * The grid sweeps both correlation and sample count for the unit-variance
+ * covariance \f$ \Sigma = \begin{bmatrix} 1 & \rho \\ \rho & 1 \end{bmatrix} \f$.
+ *
+ * \image html samples_correlated.png "Rows: increasing correlation rho = 0.3, 0.6, 0.9. Columns: increasing sample count L = 10, 20, 40, 80." width=80%
  *
  * \section page_samples_standard Standard normal scaling
  *
- * \image html samples_standard_normal.png "Standard normal approximated with increasing sample counts (L = 10, 20, 40)." width=60%
+ * \image html samples_standard_normal.png "Standard normal (Sigma = I) approximated with increasing sample count L = 10, 20, 30, 40, 50, 60." width=80%
  */
