@@ -51,9 +51,9 @@ int main(int argc, char** argv) {
   ApproximateOptions options;
   if (argc == argcNoBMax + 1) {
     options.bMax = static_cast<size_t>(std::stoi(argv[argcNoBMax]));
-    options.ftolRel = 0;
-    options.gtol = 1e-10;
   }
+  options.ftolRel = 0;
+  options.gtol = 1e-10;
 
   std::vector<double> x(L * N, 0.0);
   GslminimizerResult result;
