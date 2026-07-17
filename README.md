@@ -11,11 +11,11 @@ https://kit-isas.github.io/deterministicGaussianSampling/
 
 Deterministic LCD samples of 2-D Gaussians. Rows sweep the correlation ρ, columns the sample count L:
 
-[![Correlated Gaussians](https://balaji1810.github.io/deterministicGaussianSampling/samples_correlated.png)](https://balaji1810.github.io/deterministicGaussianSampling/page_samples.html)
+[![Correlated Gaussians](https://kit-isas.github.io/deterministicGaussianSampling/samples_correlated.png)](https://kit-isas.github.io/deterministicGaussianSampling/page_samples.html)
 
-[![Standard normal scaling](https://balaji1810.github.io/deterministicGaussianSampling/samples_standard_normal.png)](https://kit-isas.github.io/deterministicGaussianSampling/page_samples.html)
+[![Standard normal scaling](https://kit-isas.github.io/deterministicGaussianSampling/samples_standard_normal.png)](https://kit-isas.github.io/deterministicGaussianSampling/page_samples.html)
 
-**[Browse the full LCD Sample Gallery →](https://balaji1810.github.io/deterministicGaussianSampling/page_samples.html)**
+**[Browse the full LCD Sample Gallery →](https://kit-isas.github.io/deterministicGaussianSampling/page_samples.html)**
 
 Prebuilt binaries for **Linux** and **Windows** are automatically generated via GitHub Actions and attached to tagged releases.
 
