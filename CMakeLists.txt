@@ -5,3 +5,5 @@ project(LCD_Approximation_Project)
 add_subdirectory(lib)
 
 add_subdirectory(src)
+
+add_subdirectory(plots)

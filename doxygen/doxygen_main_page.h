@@ -45,6 +45,11 @@
  *
  * All implementations follow the gm_to_dirac_approx_i<T> interface.
  *
+ * \section samples Sample Gallery
+ *
+ * See the \ref page_samples "LCD Sample Gallery" for code-generated plots of
+ * 2-D Gaussian densities overlaid with their deterministic Dirac sample points.
+ *
  * \section design Design Highlights
  *
  * - Template-based numeric precision (float, double)
