@@ -89,6 +89,11 @@ bug, not a math bug:
 
 ## Q3 — Optimal bMax / selection rule
 
+> **Dedicated study:** `bMax_analysis.md` treats this question in depth
+> (mechanism figures, the 1/bMax² law, scale-invariance collapse, failure
+> galleries) and refines the rule to **bMax ≈ 10–15·σ_max·√L**, with
+> 50–100·σ_max remaining a fine flat-rate for L ≲ 150.
+
 **Rule (solid): bMax ≈ 50–100 × σ_max, as an integer (the field is
 `size_t`).** Evidence:
 

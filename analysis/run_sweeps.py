@@ -13,6 +13,12 @@ Experiments:
   bmax         quality vs bMax at L in {20,40}, default and strict tolerances
   multistart   20 seeds at L=40, strict; post-analysis picks the best
   sigma        scale test: isotropic sigma in {0.1,1,10} x bMax sweep, strict
+
+Extra experiments for the bMax study (run only when named via --only, so the
+default full sweep is unchanged; consumed by make_bmax_figures.py):
+  bmax_fine       dense bMax grid 1..1000 at L=40, strict, 4 seeds
+  sigma_collapse  sigma in {0.1,0.5,1,2,5,10} x ratio grid bMax/sigma, L=20
+  bmax_vs_L       bMax grid at L in {20,100,200}, strict, 2 seeds
 """
 
 import argparse
@@ -163,6 +169,40 @@ def main():
                         bmax, seed, ftolRel=0.0,
                         eval_bmax=max(1, round(100 * sig)),
                         experiment="sigma"))
+
+    # ---- bMax study experiments (opt-in via --only) ----
+
+    if only is not None and "bmax_fine" in only:
+        for bmax in (1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70,
+                     100, 150, 200, 300, 500, 700, 1000):
+            for seed in seeds:
+                emit(run_one(args.exe, args.outdir,
+                             f"bfine_b{bmax}_s{seed}", 40, [1.0, 1.0],
+                             bmax, seed, ftolRel=0.0,
+                             experiment="bmax_fine"))
+
+    if only is not None and "sigma_collapse" in only:
+        for sig in (0.1, 0.5, 1.0, 2.0, 5.0, 10.0):
+            done = set()
+            for ratio in (1, 2, 3, 5, 10, 20, 30, 50, 100, 300):
+                bmax = max(1, round(ratio * sig))
+                if bmax in done:      # integer rounding collides at small sig
+                    continue
+                done.add(bmax)
+                for seed in (1, 42):
+                    emit(run_one(args.exe, args.outdir,
+                                 f"scol_sig{sig:g}_b{bmax}_s{seed}", 20,
+                                 [sig, sig], bmax, seed, ftolRel=0.0,
+                                 experiment="sigma_collapse"))
+
+    if only is not None and "bmax_vs_L" in only:
+        for L in (20, 100, 200):
+            for bmax in (10, 20, 30, 50, 100, 200, 300, 500):
+                for seed in (1, 42):
+                    emit(run_one(args.exe, args.outdir,
+                                 f"bvl_L{L}_b{bmax}_s{seed}", L, [1.0, 1.0],
+                                 bmax, seed, ftolRel=0.0,
+                                 experiment="bmax_vs_L"))
 
     fh.close()
     print("results written to", results_path)

@@ -123,3 +123,31 @@ Reproduce the meeting set:
   cmake --build build --target lcd_experiment -j
   python analysis/trace_gradnorm.py --outdir <results-dir> --L 40 --seed 42
   python analysis/make_figures.py --results <results-dir> --outdir analysis/figures
+
+## bMax deep-dive (analysis/bMax_analysis.md)
+
+Dedicated study of the bMax selection rule for the supervisor discussion.
+New opt-in sweeps in run_sweeps.py (--only bmax_fine,sigma_collapse,
+bmax_vs_L; 228 runs, ~4 min, all converged). New tools:
+- lcd_distance.py: exact Python replica of the code's reported distance
+  (-2*int P2 + D3), validated to rel. 3e-15 against the driver at
+  bMax 3/50/500. Used to measure how much discriminating signal each
+  kernel scale contributes without re-optimizing.
+- make_bmax_figures.py: six figures (fig_bmax_role, _information,
+  _quality, _scale_invariance, _convergence_law, _failure_gallery).
+
+Headline findings (details + numbers in bMax_analysis.md):
+- D(shrunk x0.8) - D(optimal) is NEGATIVE for bMax <~ 4*sigma: tiny bMax
+  genuinely prefers collapsed sets (explains failure mode 1).
+- Information beyond cutoff decays as 1/bMax^2 (two decades, slope -2);
+  bias law: trace deficit ~ 6*(sigma/bMax)^2, c in [5.6, 6.7].
+- Scale invariance verified to 4 decimals across sigma 0.1..10:
+  only bMax/sigma matters.
+- Noise ceiling: f-eval noise ~ 1e-10*bMax^2 (quadrature epsrel on a
+  bMax^2/2-sized value) -> iterations fall 423->145 from bMax 100->1000
+  at L=40; visible quality damage at L=200 for bMax >= 300-500.
+- Seed-dependent process abort from bMax/sigma ~ 1e4 (sigma=0.1 bMax=1000
+  crashes with GSL_RNG_SEED=2,3; not 1,42). size_t bMax means sigma <~
+  0.001 CANNOT be given a safe bMax -> API limitation to raise.
+- Rule refined: bMax ~ (10-15)*sigma*sqrt(L) (knees measured at 50/50/
+  100/200 sigma for L=20/40/100/200); flat 50-100*sigma fine for L <~ 150.
