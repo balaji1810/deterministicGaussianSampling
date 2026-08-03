@@ -151,3 +151,78 @@ Headline findings (details + numbers in bMax_analysis.md):
   0.001 CANNOT be given a safe bMax -> API limitation to raise.
 - Rule refined: bMax ~ (10-15)*sigma*sqrt(L) (knees measured at 50/50/
   100/200 sigma for L=20/40/100/200); flat 50-100*sigma fine for L <~ 150.
+
+## Removing the bMax ceiling (objective offset fix)
+
+Follow-up to the bMax study: the *upper* bMax failure mode was numerical,
+not mathematical, so it was removed at the source instead of being turned
+into a recommended limit.
+
+Derivation (verified in lcd_distance.py to machine precision):
+  f_full(x, B) = f_reduced(x, B) + C(B),
+  C(B) = -2*W*int_0^B prefactor(b) db + 0.5*B^2*W^2,   W = sum_i w_i
+C is entirely x-independent and contains the whole divergence
+(-B^2/2 + ln B); f_reduced CONVERGES: -0.345852 (B=50) -> -0.346131 (1000)
+-> -0.346132 (1e4). So larger bMax is mathematically always fine.
+
+Because the quadrature works to a RELATIVE tolerance (1e-10), carrying C
+inside the optimizer's objective made the absolute per-evaluation noise
+~1e-10*B^2/2 (5e-7 at B=100, 5e-3 at B=1e4) against an O(0.35) signal whose
+late-stage steps are ~1e-6. That, and nothing else, produced the iteration
+collapse, the quality loss at large bMax, and the qag aborts.
+
+Fix (lib/gm_to_dirac/gm_to_dirac_short.{h,tpp}, .cpp; ~15 lines, no API
+change): calculateP2 integrates sum_i w_i*expm1(...) instead of
+sum_i w_i*exp(...) (expm1 is essential -- the exponent tends to 0, so
+exp(...)-1 would lose all digits); calculateD3 drops the per-pair
+0.5*bMax^2 term; new constantOffset() adds C back ONLY in the public
+reporting path, so reported distances stay comparable across versions.
+
+Verification:
+- reported distance vs pre-fix binary: agrees to <=1.3e-11 rel at
+  bMax=10/100/1000.
+- analytic gradient vs central FD: ~1e-7 at the optimal step size (swept h;
+  at bMax=1000 the FD probe itself is limited by the offset still present
+  in the *reported* value -- an independent demo of the same disease).
+- quality now FLAT to bMax=1e4 at L=40 and L=200 (see table in
+  bMax_analysis.md section 8); at L=200 large bMax is now BETTER
+  (cov err 0.0088 -> 0.0071).
+- all three previously-aborting configs now succeed; sigma=0.01/bMax=1000
+  (ratio 1e5) gives trace ratio 0.956, NN-CV(u) 0.081.
+- low-bMax behaviour unchanged (cov err 0.1126 at bMax=10, before & after).
+- build + docs pipeline (plots/plot_samples.py) verified.
+
+New sweep: run_sweeps.py --only bmax_extreme (L in {40,200} x bMax in
+{100,300,1000,3000,10000} x 2 seeds). New figure: fig_bmax_offset_fix.png
+(make_bmax_figures.py --before <pre-fix-results-dir>).
+
+## fig_samples_before_after.png
+
+Direct visual of the offset fix: the actual point sets, 2x3, rows =
+pre-fix / current dev, columns = bMax 100 / 1000 / 10000, all at N=2,
+sigma=I, L=200, GSL_RNG_SEED=42, library defaults (ftolRel=0 in both).
+
+The pre-fix binary is built from a throwaway git worktree of dev with only
+lib/gm_to_dirac/gm_to_dirac_short.{h,tpp,cpp} checked out from main, so the
+offset removal is the sole difference (dev itself is never touched, and
+approximate_options.h keeps dev's ftolRel=0). Two notes for whoever repeats
+this: git needs -c core.longpaths=true for this repo's deepest test paths,
+and the worktree must live at a SHORT path (the build output paths blow
+past MAX_PATH otherwise); C:/Users/balaj/AppData/Local/Temp/lcdpre worked.
+
+Driver: run_sweeps.py --only samples_before_after, run once per binary into
+separate --outdir trees; figure via make_bmax_figures.py
+--samples-before <dir> --samples-after <dir>, which also prints the six
+(NN-CV, iterations) pairs.
+
+  row       bMax    NN-CV(u)   iters
+  before     100      0.1409     171
+  before    1000      0.2748      46
+  before   10000      0.5644       2
+  after      100      0.1590     395
+  after     1000      0.1515     291
+  after    10000      0.1613     355
+
+At bMax=10000 the pre-fix run stops after 2 iterations, so its panel is
+essentially the random initialisation; the post-fix panels are visually
+identical lattices at all three bMax values.

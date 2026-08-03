@@ -19,6 +19,13 @@ default full sweep is unchanged; consumed by make_bmax_figures.py):
   bmax_fine       dense bMax grid 1..1000 at L=40, strict, 4 seeds
   sigma_collapse  sigma in {0.1,0.5,1,2,5,10} x ratio grid bMax/sigma, L=20
   bmax_vs_L       bMax grid at L in {20,100,200}, strict, 2 seeds
+  bmax_extreme    bMax up to 1e4 at L in {40,200}, for the offset-fix figures
+  samples_before_after
+                  the three point sets (L=200, seed 42, bMax 100/1000/1e4)
+                  behind fig_samples_before_after.png; run once per binary
+  samples_corr_before_after
+                  same three configs for the correlated target CORR_COV,
+                  behind fig_samples_corr_before_after.png
 """
 
 import argparse
@@ -32,6 +39,20 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import metrics  # noqa: E402
+
+# Correlated target for the samples_corr_before_after figure.  The library
+# itself only ever sees a diagonal covariance: as in plots/plot_samples.py,
+# samples are generated for sigma = sqrt(eigenvalues) and rotated into place
+# afterwards, so the optimization problem is the diagonal one below.
+CORR_COV = [[2.0, 1.0], [1.0, 2.0]]
+
+
+def corr_axis_sigmas(cov=None):
+    """Per-axis std devs the driver is called with for a correlated target."""
+    lam, _ = np.linalg.eigh(np.asarray(cov if cov is not None else CORR_COV,
+                                       dtype=float))
+    return np.sqrt(np.clip(lam, 0.0, None))
+
 
 FIELDS = [
     "experiment", "L", "N", "bMax", "seed", "sigma", "ftolRel", "gtol",
@@ -105,6 +126,14 @@ def main():
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--only", default="")
     args = ap.parse_args()
+
+    # Windows CreateProcess does not resolve a *relative* command path that
+    # uses forward slashes ("build/plots/lcd_experiment.exe" fails with
+    # WinError 2 while "build\plots\..." works), so normalise it here and
+    # accept whatever form the caller passed.
+    args.exe = os.path.abspath(args.exe)
+    if not os.path.exists(args.exe):
+        sys.exit(f"error: driver not found at '{args.exe}'")
 
     only = set(args.only.split(",")) if args.only else None
     os.makedirs(args.outdir, exist_ok=True)
@@ -194,6 +223,36 @@ def main():
                                  f"scol_sig{sig:g}_b{bmax}_s{seed}", 20,
                                  [sig, sig], bmax, seed, ftolRel=0.0,
                                  experiment="sigma_collapse"))
+
+    if only is not None and "samples_before_after" in only:
+        # the six point sets shown in fig_samples_before_after.png; run this
+        # once with the pre-fix binary and once with the current one, into
+        # two separate --outdir trees
+        for bmax in (100, 1000, 10000):
+            emit(run_one(args.exe, args.outdir, f"sba_b{bmax}", 200,
+                         [1.0, 1.0], bmax, 42, ftolRel=0.0,
+                         experiment="samples_before_after"))
+
+    if only is not None and "samples_corr_before_after" in only:
+        # same three configs as samples_before_after, but for the correlated
+        # target CORR_COV; the driver still solves the diagonal problem for
+        # sigma = sqrt(eigenvalues) and the figure applies the rotation
+        sig = corr_axis_sigmas()
+        for bmax in (100, 1000, 10000):
+            emit(run_one(args.exe, args.outdir, f"scba_b{bmax}", 200,
+                         list(sig), bmax, 42, ftolRel=0.0,
+                         experiment="samples_corr_before_after"))
+
+    if only is not None and "bmax_extreme" in only:
+        # pushes bMax far past the old "safe" window; used to compare the
+        # objective before/after the constant-offset removal
+        for L in (40, 200):
+            for bmax in (100, 300, 1000, 3000, 10000):
+                for seed in (1, 42):
+                    emit(run_one(args.exe, args.outdir,
+                                 f"bext_L{L}_b{bmax}_s{seed}", L, [1.0, 1.0],
+                                 bmax, seed, ftolRel=0.0,
+                                 experiment="bmax_extreme"))
 
     if only is not None and "bmax_vs_L" in only:
         for L in (20, 100, 200):

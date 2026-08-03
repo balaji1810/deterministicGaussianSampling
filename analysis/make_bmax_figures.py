@@ -212,10 +212,10 @@ def fig_quality(df, outdir):
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.axhspan(0.015, 0.018, color=GRID, zorder=0)
-    ax.text(1.3, 0.0155, "plateau = intrinsic ≈1/L\nshrinkage, not a bMax "
+    ax.text(1.15, 0.038, "plateau = intrinsic ≈1/L\nshrinkage, not a bMax "
             "error", fontsize=8.5, color=INK2, va="center")
-    ax.set_title("Covariance error (relative)\nsaturates — flat from ≈50σ "
-                 "to 1000σ", fontsize=10)
+    ax.set_title("Covariance error (relative)\nfalls, then saturates from "
+                 "≈30–50σ onward", fontsize=10)
     ax.set_ylabel("‖C − I‖$_F$ / tr(I)")
 
     ax = axes[1]
@@ -231,21 +231,22 @@ def fig_quality(df, outdir):
     ax.plot(g.index, 100 * g.ms / g.ms.max(), color=INK2, ls=":", marker="o",
             ms=3, label="runtime (% of max)")
     ax.set_xscale("log")
-    ax.set_title("Optimizer effort\nfalls beyond ≈150σ: quadrature noise "
-                 "(∝ bMax²·εrel)\ntriggers early no-progress stops",
-                 fontsize=10)
-    ax.legend(frameon=False, fontsize=8.5, loc="lower left")
+    ax.set_ylim(0, None)
+    ax.set_title("Optimizer effort\nflat once bMax ≳ 30σ — no large-bMax\n"
+                 "stalling after the offset fix", fontsize=10)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
 
     for ax in axes:
-        ax.axvspan(50, 100, color=BAND, zorder=0)
+        ax.axvspan(10, 1000, color=BAND, zorder=0)
         ax.set_xlabel("bMax   (σ = 1, log scale)")
         style(ax)
-    axes[0].annotate("recommended\n50–100σ", xy=(70, 0.25), fontsize=8.5,
-                     color=INK2, ha="center",
+    axes[1].annotate("saturated: any bMax in this band works", xy=(100, 0.9),
+                     fontsize=8.5, color=INK2, ha="center",
                      xycoords=("data", "axes fraction"))
 
-    fig.suptitle("Measured sample quality vs bMax   (2D standard normal, "
-                 "L = 40, strict stop, mean over 4 seeds)", fontsize=12)
+    fig.suptitle("Measured sample quality vs bMax, with the offset fix   "
+                 "(2D standard normal, L = 40, strict stop, 4 seeds)",
+                 fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     p = os.path.join(outdir, "fig_bmax_quality.png")
     fig.savefig(p, dpi=150)
@@ -421,12 +422,232 @@ def fig_failure_gallery(df, outdir, results_dir):
     print("wrote", p)
 
 
+# ---------------------------------------------------------------------------
+# 7. Removing the constant offset removes the upper failure mode entirely
+# ---------------------------------------------------------------------------
+
+def fig_offset_fix(before_df, after_df, outdir):
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+
+    panels = [
+        ("iterations", "Optimizer effort\n(BFGS iterations until stop)", False),
+        ("nn_cv_u", "Non-uniformity NN-CV(u)\n(lower = more even)", False),
+        ("cov_err_fro", "Covariance error ‖C − I‖$_F$", True),
+    ]
+    styles = [(40, "-", "o"), (200, "--", "s")]
+    for ax, (col, title, logy) in zip(axes, panels):
+        for L, ls, mk in styles:
+            for d, colr, tag in ((before_df, RED, "before"),
+                                 (after_df, BLUE, "after")):
+                g = d[(d.experiment == "bmax_extreme")
+                      & (d.L == L)].groupby("bMax")[col].mean()
+                ax.plot(g.index, g.values, color=colr, ls=ls, marker=mk, ms=4,
+                        label=f"{tag}, L={L}")
+        ax.set_xscale("log")
+        if logy:
+            ax.set_yscale("log")
+        ax.set_xlabel("bMax   (σ = 1, log scale)")
+        ax.set_title(title, fontsize=10)
+        style(ax)
+    axes[0].legend(frameon=False, fontsize=8, ncol=2, loc="center left")
+    axes[1].annotate("optimizer stalls:\nquality collapses",
+                     xy=(9000, 0.47), xytext=(900, 0.45), fontsize=9,
+                     color=RED, ha="center",
+                     arrowprops=dict(arrowstyle="->", color=RED, lw=1.2))
+    axes[1].annotate("stays flat to bMax = 10⁴", xy=(5000, 0.152),
+                     xytext=(400, 0.098), fontsize=9, color=BLUE,
+                     arrowprops=dict(arrowstyle="->", color=BLUE, lw=1.2))
+
+    fig.suptitle("Removing the x-independent bMax²-sized offset from the "
+                 "optimizer's objective\neliminates the large-bMax failure "
+                 "mode — quality no longer degrades, at any bMax tested",
+                 fontsize=11.5)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    p = os.path.join(outdir, "fig_bmax_offset_fix.png")
+    fig.savefig(p, dpi=150)
+    plt.close(fig)
+    print("wrote", p)
+
+
+# ---------------------------------------------------------------------------
+# 8. The actual point sets, before vs after the offset fix
+# ---------------------------------------------------------------------------
+
+def fig_samples_before_after(before_df, after_df, before_dir, after_dir,
+                             outdir):
+    """2x3 grid: rows = pre-fix / current, columns = bMax 100, 1000, 10000."""
+    lim = 4.0
+    bmax_values = [100, 1000, 10000]
+    rows = [("before", before_df, before_dir), ("after", after_df, after_dir)]
+
+    fig, axes = plt.subplots(2, 3, figsize=(10.5, 7.4))
+    printed = []
+    for r_i, (label, df, results_dir) in enumerate(rows):
+        for c_i, bmax in enumerate(bmax_values):
+            sel = df[(df.experiment == "samples_before_after")
+                     & (df.bMax == bmax)]
+            row = sel.iloc[0]
+            x = load_samples(row, results_dir)
+            cv = float(row.nn_cv_u)
+            iters = int(row.iterations)
+            printed.append((label, bmax, cv, iters))
+
+            ax = axes[r_i][c_i]
+            ax.scatter(x[:, 0], x[:, 1], s=9, c=BLUE, linewidths=0.0,
+                       zorder=3)
+            ax.set_xlim(-lim, lim)
+            ax.set_ylim(-lim, lim)
+            ax.set_aspect("equal")
+            ax.set_xticks(range(-4, 5, 2))
+            ax.set_yticks(range(-4, 5, 2))
+            ax.grid(False)
+            ax.set_facecolor("white")
+            ax.text(0.035, 0.965,
+                    f"NN-CV(u) = {cv:.3f}\niters = {iters}",
+                    transform=ax.transAxes, ha="left", va="top", fontsize=9,
+                    color=INK,
+                    bbox=dict(boxstyle="round,pad=0.32", fc="white",
+                              ec=GRID, alpha=0.9))
+            if r_i == 0:
+                ax.set_title(f"bMax = {bmax}", fontsize=11)
+            if c_i == 0:
+                ax.set_ylabel(label, fontsize=13, labelpad=12)
+
+    fig.suptitle("Sample sets before and after removing the objective offset\n"
+                 "(N = 2, sigma = I, L = 200)", fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.subplots_adjust(hspace=0.28)
+    p = os.path.join(outdir, "fig_samples_before_after.png")
+    fig.savefig(p, dpi=150, facecolor="white")
+    plt.close(fig)
+    print("wrote", p)
+    print("  row      bMax     NN-CV(u)   iterations")
+    for label, bmax, cv, iters in printed:
+        print(f"  {label:<8} {bmax:>6}   {cv:8.4f}   {iters:>6}")
+
+
+# ---------------------------------------------------------------------------
+# 9. Same comparison for a correlated target
+# ---------------------------------------------------------------------------
+
+def fig_samples_corr_before_after(before_df, after_df, before_dir, after_dir,
+                                  outdir):
+    """2x3 grid for the correlated target: rows pre-fix / current dev.
+
+    The library only ever solves the diagonal problem for
+    sigma = sqrt(eigenvalues); the correlation is applied here by the same
+    rotation plots/plot_samples.py uses.
+    """
+    from run_sweeps import CORR_COV
+
+    cov = np.asarray(CORR_COV, dtype=float)
+    lam, q = np.linalg.eigh(cov)
+    lam = np.clip(lam, 0.0, None)
+    lim = 5.5
+    bmax_values = [100, 1000, 10000]
+    rows = [("before", before_df, before_dir), ("after", after_df, after_dir)]
+
+    # 2 sigma outline of the target, to make the orientation readable
+    t = np.linspace(0.0, 2.0 * np.pi, 240)
+    ell = (np.stack([np.cos(t), np.sin(t)], axis=1)
+           * (2.0 * np.sqrt(lam))[None, :]) @ q.T
+
+    fig, axes = plt.subplots(2, 3, figsize=(10.5, 7.4))
+    printed = []
+    for r_i, (label, df, results_dir) in enumerate(rows):
+        for c_i, bmax in enumerate(bmax_values):
+            sel = df[(df.experiment == "samples_corr_before_after")
+                     & (df.bMax == bmax)]
+            row = sel.iloc[0]
+            z = load_samples(row, results_dir)      # diagonal, eigenbasis
+            x = z @ q.T                             # rotate into place
+            cv = float(row.nn_cv_u)
+            iters = int(row.iterations)
+            printed.append((label, bmax, cv, iters))
+
+            ax = axes[r_i][c_i]
+            ax.plot(ell[:, 0], ell[:, 1], color=INK2, lw=1.0, alpha=0.45,
+                    zorder=2)
+            ax.scatter(x[:, 0], x[:, 1], s=9, c=BLUE, linewidths=0.0,
+                       zorder=3)
+            ax.set_xlim(-lim, lim)
+            ax.set_ylim(-lim, lim)
+            ax.set_aspect("equal")
+            ax.set_xticks(range(-4, 5, 2))
+            ax.set_yticks(range(-4, 5, 2))
+            ax.grid(False)
+            ax.set_facecolor("white")
+            ax.text(0.035, 0.965,
+                    f"NN-CV(u) = {cv:.3f}\niters = {iters}",
+                    transform=ax.transAxes, ha="left", va="top", fontsize=9,
+                    color=INK,
+                    bbox=dict(boxstyle="round,pad=0.32", fc="white",
+                              ec=GRID, alpha=0.9))
+            if r_i == 0:
+                ax.set_title(f"bMax = {bmax}", fontsize=11)
+            if c_i == 0:
+                ax.set_ylabel(label, fontsize=13, labelpad=12)
+
+    (a, b), (c, d) = CORR_COV
+    fig.suptitle("Sample sets before and after removing the objective offset, "
+                 "correlated target\n"
+                 f"(N = 2, Sigma = [[{a:g}, {b:g}], [{c:g}, {d:g}]], L = 200)"
+                 ,
+                 fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.subplots_adjust(hspace=0.28)
+    p = os.path.join(outdir, "fig_samples_corr_before_after.png")
+    fig.savefig(p, dpi=150, facecolor="white")
+    plt.close(fig)
+    print("wrote", p)
+    print("  row      bMax     NN-CV(u)   iterations")
+    for label, bmax, cv, iters in printed:
+        print(f"  {label:<8} {bmax:>6}   {cv:8.4f}   {iters:>6}")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--results", required=True)
+    ap.add_argument("--results", default="",
+                    help="dir with the bMax-study results.csv; omit to build "
+                         "only the standalone before/after sample figures")
     ap.add_argument("--outdir", required=True)
+    ap.add_argument("--before", default="",
+                    help="results dir produced by the pre-fix binary; enables "
+                         "fig_bmax_offset_fix")
+    ap.add_argument("--samples-before", default="",
+                    help="pre-fix results dir holding the "
+                         "samples_before_after runs")
+    ap.add_argument("--samples-after", default="",
+                    help="current-build results dir holding the "
+                         "samples_before_after runs; enables "
+                         "fig_samples_before_after")
+    ap.add_argument("--corr-before", default="",
+                    help="pre-fix results dir holding the "
+                         "samples_corr_before_after runs")
+    ap.add_argument("--corr-after", default="",
+                    help="current-build results dir holding the "
+                         "samples_corr_before_after runs; enables "
+                         "fig_samples_corr_before_after")
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
+
+    # standalone: these only need their own before/after result trees
+    standalone = False
+    if args.samples_before and args.samples_after:
+        fig_samples_before_after(
+            pd.read_csv(os.path.join(args.samples_before, "results.csv")),
+            pd.read_csv(os.path.join(args.samples_after, "results.csv")),
+            args.samples_before, args.samples_after, args.outdir)
+        standalone = True
+    if args.corr_before and args.corr_after:
+        fig_samples_corr_before_after(
+            pd.read_csv(os.path.join(args.corr_before, "results.csv")),
+            pd.read_csv(os.path.join(args.corr_after, "results.csv")),
+            args.corr_before, args.corr_after, args.outdir)
+        standalone = True
+    if standalone and not args.results:
+        return
+
     df = pd.read_csv(os.path.join(args.results, "results.csv"))
 
     fig_role(df, args.outdir, args.results)
@@ -435,6 +656,9 @@ def main():
     fig_scale_invariance(df, args.outdir)
     fig_convergence_law(df, args.outdir)
     fig_failure_gallery(df, args.outdir, args.results)
+    if args.before:
+        fig_offset_fix(pd.read_csv(os.path.join(args.before, "results.csv")),
+                       df, args.outdir)
 
 
 if __name__ == "__main__":

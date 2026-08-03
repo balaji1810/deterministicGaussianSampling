@@ -108,11 +108,12 @@ bug, not a math bug:
 - Too small (bMax ≲ 10σ) is catastrophic: at bMax=σ the kernel window never
   sees the global structure (covariance error ≈ 100%, samples badly
   inhomogeneous).
-- Too large is mildly harmful even with the strict stop (quadrature noise:
-  covariance error and NN-CV(u) creep back up from bMax≈100 to 500) and
-  *very* large ratios (bMax/σ ≈ 10⁴) make `gsl_integration_qag` fail — with
-  GSL's default error handler this **aborts the process** (reproduced at
-  σ=0.1, bMax=1000).
+- Too large *used to be* mildly harmful (quadrature noise from bMax≈100 to
+  500) and very large ratios (bMax/σ ≈ 10⁴) could abort the process. **Both
+  are fixed**: the x-independent ≈bMax²/2 constant is no longer carried
+  inside the optimizer's objective, so quality is now flat out to
+  bMax/σ = 10⁵ and the aborts are gone. See `bMax_analysis.md` §7–§8; only
+  the *lower* bound remains a real constraint.
 - With the *old* default stopping, bMax also controls how early ftolRel
   fires: quality at L=40 peaked at bMax=20–50 and degraded beyond. After the
   fix this coupling disappears — that was the main practical "bMax effect".
@@ -131,11 +132,17 @@ Applied on `dev` (all additive except one default):
 1. **`lib/options/approximate_options.h`** — `ftolRel` default `1e-10 → 0`
    (with explanatory comment). This is the fix. One line, revertable,
    unit tests unaffected (they only test derivatives).
-2. **`plots/lcd_experiment.cpp` (+ CMake target)** — experiment driver
+2. **`lib/gm_to_dirac/gm_to_dirac_short.{h,tpp}`, `.cpp`** — remove the
+   x-independent ≈bMax²/2 constant from the value the optimizer minimizes
+   (`expm1` integrand in `calculateP2`, no per-pair constant in
+   `calculateD3`, `constantOffset()` restoring it for the reported
+   distance). Removes the large-bMax degradation and the aborts; reported
+   distance and gradient unchanged. See `bMax_analysis.md` §7–§8.
+3. **`plots/lcd_experiment.cpp` (+ CMake target)** — experiment driver
    exposing seed/tolerances/bMax/warm-start; also calls
    `gsl_set_error_handler_off()` so quadrature failures return an error
    instead of aborting. Not shipped in release artifacts.
-3. **`analysis/`** — metrics (L2 star discrepancy, moments, NN stats),
+4. **`analysis/`** — metrics (L2 star discrepancy, moments, NN stats),
    sweep harness, figure generation, this report.
 
 Recommended but *not* applied (maintainer decisions):

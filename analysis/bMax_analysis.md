@@ -9,13 +9,21 @@ data from `run_sweeps.py --only bmax_fine,sigma_collapse,bmax_vs_L`
 
 **The rule**
 
-> **bMax ≈ 10–15 · σ_max · √L, rounded up — in practice any integer in
-> [50 σ_max, 100 σ_max] is fine for L ≲ 150.**
-> Below ~5 σ the approximation collapses (failure mode 1); beyond ~300 σ
-> quality slowly degrades through quadrature noise (failure mode 2), and
-> from bMax/σ ≈ 10⁴ the library can abort the process outright.
-> Quality is *flat* across the whole recommended window, so the choice is
-> forgiving — getting the order of magnitude right is what matters.
+> **Use bMax ≳ 10–15 · σ_max · √L (any integer in [50 σ_max, 100 σ_max] is
+> a good default for L ≲ 150).** There is a genuine *lower* bound — below
+> ~5 σ the approximation collapses — but **no upper bound**: quality is
+> flat or slowly improving all the way to the largest bMax tested
+> (bMax/σ = 10⁵). Larger bMax only costs runtime.
+
+> **Update — the upper failure mode has been removed, not worked around.**
+> An earlier revision of this note recommended an upper limit of ~300 σ
+> because quality degraded beyond it and the library could abort at
+> bMax/σ ≈ 10⁴. That degradation was **not** mathematical: it came from an
+> x-independent, ≈ bMax²/2-sized constant sitting inside the value handed
+> to the optimizer, which made the quadrature's *absolute* noise grow as
+> bMax². §7 derives and removes that constant; §8 measures the result. The
+> upper limit and the crash are both gone, and §4 is kept only as the
+> record of the original diagnosis.
 
 ---
 
@@ -76,7 +84,12 @@ Two independent measurements give the same law:
 So there is no "optimal" bMax to hunt for — there is a *saturation
 threshold*, above which everything is equally good until noise takes over.
 
-## 4. Failure mode 2: bMax too large buys noise, then crashes
+## 4. Failure mode 2 (now FIXED — see §7): bMax too large bought noise
+
+*This section records the original diagnosis, measured on the pre-fix
+library. Everything in it was caused by the removable constant of §7; after
+the fix none of these effects remain (§8). It is kept because the mechanism
+is what motivated the fix.*
 
 The D2 integral is computed by adaptive quadrature with relative tolerance
 1e-10 (`gsl_quadrature_adaptive_gauss_kronrod.h`). The integral's *value*
@@ -126,33 +139,105 @@ Putting §3 and §4 together:
   its plateau) match: 50σ at L=20 and 40, 100σ at L=100, 200σ at L=200 —
   consistent with **(10–15)·σ·√L** given the sweep's grid resolution
   (`fig_bmax_convergence_law.png`, right).
-- The noise ceiling (§4) sits around 300–500σ for L ≤ 200. The window
-  [10√L·σ, ~300σ] is wide open for every L we measured; it narrows as L
-  grows, which is an open point beyond L ≈ 500 (see §8).
-- Cost is *not* a reason to keep bMax small: runtime per iteration grows
-  only mildly (0.5 ms → 1.1 ms from bMax = 10 to 100 at L = 40; adaptive
-  quadrature is roughly logarithmic in bMax), and total runtime is
-  dominated by the iteration count.
+- There is **no upper ceiling any more** (§7–§8): after the offset fix,
+  quality is flat from the knee out to bMax/σ = 10⁵, the largest tested.
+- Cost is the only remaining reason not to set bMax huge: runtime grows
+  roughly logarithmically with bMax (at L = 40, ~9 ms at bMax = 10 →
+  ~100 ms at 1000, dominated by the iteration count, which is itself flat).
 
-Practical summary (2D, verified for L = 20…200, σ = 0.1…10):
+Practical summary (2D, verified for L = 20…200, σ = 0.1…10, post-fix):
 
 | bMax/σ | what happens |
 |---|---|
 | ≲ 4 | objective *prefers* collapsed sets — catastrophic |
 | 5–30 | works, but measurable covariance bias (6σ²/bMax²) |
-| **≈ 10–15·√L (≈ 50–100 for typical L)** | **saturated quality — recommended** |
-| ~300–1000 | flat at small L; at L ≳ 200 late-stage quality erodes (quadrature noise) |
-| ≳ 10⁴ | seed-dependent hard abort of the process |
+| **≈ 10–15·√L (≈ 50–100 for typical L)** | **saturated quality — recommended default** |
+| 100 – 10⁵ | still saturated; costs runtime, buys nothing (but harms nothing) |
 
 The current default `bMax = 100` is right for σ = 1 and L ≲ 150. A σ-aware
-default such as `ceil(100·σ_max)` (or the √L-aware version) remains the
-recommended library change; the field is a `size_t`, so sub-integer bMax
-for tiny σ is impossible — for σ = 0.01 the *smallest representable* bMax
-is already 100σ, which luckily lands in the good window, but σ ≲ 0.001
-would force bMax/σ ≥ 10⁵ into the crash zone. That is a genuine API
-limitation worth raising with the maintainers.
+default such as `ceil(100·σ_max)` remains the recommended library change.
+Note the `size_t` type is no longer dangerous now that huge ratios are
+safe, but it still prevents bMax < 1, so for σ ≳ 1 the *lower* bound is
+what the caller must respect.
 
-## 7. Solid vs uncertain
+## 7. Removing the constraint instead of living with it
+
+§4's ceiling was a numerical artifact, and it can be removed at the source.
+Write the Gaussian–Dirac integrand as
+
+    prefactor(b) · Σᵢ wᵢ exp(...)  =  prefactor(b)·Σᵢwᵢ  +  prefactor(b)·Σᵢwᵢ(exp(...) − 1)
+
+The first piece does not contain the sample positions at all. Likewise every
+pair in D3 contributes an identical ½·bMax²·wᵢwⱼ. Together they are exactly
+
+    C(bMax) = −2·W·∫₀^bMax prefactor(b) db + ½·bMax²·W²,     W = Σᵢwᵢ
+
+Verified numerically (`lcd_distance.py`): `f_full = f_reduced + C` to
+machine precision (residual ≤ 1e-13 relative at bMax up to 10⁴), and
+**f_reduced converges** as bMax grows — −0.345852 (bMax=50) → −0.346131
+(1000) → −0.346132 (10⁴) — while `f_full` diverges as −bMax²/2 + ln bMax.
+So *all* of the divergence is x-independent: the user-visible intuition
+("larger bMax should never be worse") is mathematically correct, and only
+the constant was breaking it.
+
+Because the quadrature works to a **relative** tolerance (1e-10), carrying
+C inside the optimizer's objective made the absolute noise per evaluation
+≈ 1e-10·bMax²/2 — 5·10⁻⁷ at bMax = 100 but 5·10⁻³ at 10⁴ — against a signal
+of size |f_reduced| ≈ 0.35 whose late-stage steps are ~1e-6. That is the
+whole of failure mode 2, including the aborts (the quadrature simply could
+not reach 1e-10 relative on a value that large).
+
+The fix (on `dev`, ~15 lines, no API change):
+
+1. `calculateP2` integrates `Σᵢwᵢ·expm1(...)` instead of `Σᵢwᵢ·exp(...)`.
+   `expm1` is essential — the exponent → 0 as b grows, so `exp(...)−1`
+   computed directly would lose every significant digit.
+2. `calculateD3` omits the per-pair ½·bMax² constant.
+3. A new `constantOffset()` adds C back **only in the public
+   `modified_van_mises_distance_sq` reporting path**, so the reported
+   distance is bit-for-bit comparable with previous versions.
+
+The optimizer's objective differs from before by a constant only, so the
+minimizer and the analytic gradient are mathematically unchanged.
+Verified: reported distances agree with the pre-fix binary to ≤ 1.3e-11
+relative at bMax = 10/100/1000, and the analytic gradient still matches
+central finite differences to ~1e-7 (best over a step-size sweep; at
+bMax = 1000 the *FD probe itself* is limited by the offset that remains in
+the reported value — an independent illustration of the same disease).
+
+## 8. Result: the upper limit is gone
+
+`figures/fig_bmax_offset_fix.png`, before vs after (strict stop, 2 seeds):
+
+| | L=40, bMax=100 | L=40, bMax=10⁴ | L=200, bMax=100 | L=200, bMax=10⁴ |
+|---|---|---|---|---|
+| iterations before | 396 | **5.5** | 183 | **2** |
+| iterations after | 448 | **513** | 339 | **352** |
+| NN-CV(u) before | 0.134 | **0.460** | 0.145 | **0.563** |
+| NN-CV(u) after | 0.133 | **0.134** | 0.158 | **0.156** |
+| cov. error before | 0.0337 | **0.306** | 0.0088 | **0.129** |
+| cov. error after | 0.0336 | **0.0325** | 0.0089 | **0.0071** |
+
+- Quality is now **flat across two extra decades** of bMax, at both L.
+- At L = 200, larger bMax is now genuinely *better* (covariance error
+  0.0088 → 0.0071), exactly as the 1/bMax² theory of §3 predicts and as it
+  could never show before.
+- Even at the *old* recommended bMax = 100 the fix helps: L = 200 runs 339
+  iterations instead of 183, i.e. noise was already limiting there.
+- **The aborts are gone.** All three previously-crashing configurations now
+  run to completion with good samples: σ = 0.1, bMax = 1000, seeds 2 and 3;
+  and σ = 0.01, bMax = 1000 (ratio 10⁵) → trace ratio 0.956 (intrinsic for
+  L = 20 is ≈ 0.95), NN-CV(u) 0.081.
+- Low-bMax behaviour is untouched (bMax = 10 gives covariance error 0.1126
+  before and after), as it must be: §2's collapse is mathematical.
+
+Side effect worth noting: with the offset gone, `f` is O(1), so a
+*relative* f-tolerance is meaningful again. The `ftolRel = 0` default from
+the earlier stopping fix is kept (it is what these numbers were measured
+with), but `ftolRel = 1e-10` would now be a sane criterion rather than a
+premature-stop bug.
+
+## 9. Solid vs uncertain
 
 Solid (each independently measured, and the mechanism reproduces in the
 exact Python replica of the objective):
@@ -163,29 +248,42 @@ exact Python replica of the objective):
 - the noise mechanism at large bMax (εrel = 1e-10 quadrature on a value
   growing as bMax²), its measured iteration collapse, and the quality
   damage at L = 200;
-- the seed-dependent abort from bMax/σ ≈ 10⁴.
+- the seed-dependent abort from bMax/σ ≈ 10⁴ (pre-fix);
+- the exact decomposition `f_full = f_reduced + C(bMax)` and the
+  convergence of `f_reduced` (machine precision, §7);
+- that the fix restores flat quality to bMax/σ = 10⁵ and removes the
+  aborts, with the reported distance and the gradient unchanged.
 
 Uncertain:
 - the constant "6" in the bias law and the knee positions are 2D
   measurements; the 1/bMax² *form* is dimension-independent, but the
   constants were not re-measured for N > 2;
-- the upper (noise) ceiling was mapped coarsely; for L ≳ 500 the window
-  between 10√L·σ and the noise ceiling may narrow enough to require
-  tightening the quadrature tolerance instead of just picking bMax;
-- knee estimates are quantized by the sweep grid (roughly a factor 1.5).
+- knee estimates are quantized by the sweep grid (roughly a factor 1.5);
+- the gradient integrand (`calculateGradP2`) still grows like ln bMax and
+  cancels against D3's log term. That cancellation is ~7 orders milder
+  than the bMax² one and no ill effect is visible at bMax/σ = 10⁵, but at
+  truly extreme ratios it would be the next thing to hit. The same
+  splitting trick would apply.
+- the fix was measured at L ∈ {40, 200} for the extreme sweep and L = 40
+  for the fine sweep; other L values are covered only by the pre-existing
+  (pre-fix) data.
 
-## 8. Reproduce
+## 10. Reproduce
 
 ```
 cmake --build build --target lcd_experiment generate_samples -j
-python analysis/run_sweeps.py --outdir <results-dir> \
-    --only bmax_fine,sigma_collapse,bmax_vs_L          # ~4 min, 228 runs
-python analysis/make_bmax_figures.py --results <results-dir> \
-    --outdir analysis/figures
+python analysis/run_sweeps.py --outdir analysis/results \
+    --only bmax_fine,sigma_collapse,bmax_vs_L,bmax_extreme
+python analysis/make_bmax_figures.py --results analysis/results \
+    --outdir analysis/figures [--before <pre-fix-results-dir>]
 # objective-replica self-check against any driver run:
 build/plots/lcd_experiment.exe --L 40 --seed 42 --bMax 50 --out s.csv
 python analysis/lcd_distance.py --samples s.csv --bMax 50 --dist <RESULT dist=...>
-# crash reproduction (WARNING: aborts the process, by design of GSL's
-# default error handler):
+# formerly-crashing configuration, now fine:
 GSL_RNG_SEED=2 build/plots/generate_samples.exe 2 20 out.csv 0.1 0.1 1000
 ```
+
+To reproduce the before/after comparison, build the pre-fix binary by
+reverting the `calculateP2` / `calculateD3` / `constantOffset` hunks
+(commit touching `lib/gm_to_dirac/`), run `--only bmax_extreme` into a
+separate directory, and pass it as `--before`.
